@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>弹珠台球 & 足球小游戏</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    background: #111;
+    color: #fff;
+    padding: 24px;
+  }
+
+  h1 {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 26px;
+  }
+
+  .container {
+    display: grid;
+    gap: 24px;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+
+  .game-card {
+    background: #1b1b1b;
+    border: 1px solid #333;
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+
+  .game-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .game-title h2 {
+    font-size: 20px;
+  }
+
+  .tips {
+    color: #bbb;
+    font-size: 14px;
+    margin-bottom: 12px;
+    line-height: 1.6;
+  }
+
+  canvas {
+    background: #222;
+    border: 2px solid #444;
+    border-radius: 10px;
+    display: block;
+    margin: 0 auto;
+    cursor: crosshair;
+    max-width: 100%;
+  }
+
+  .scoreboard {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 12px;
+  }
+
+  .badge {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 14px;
+    color: #ddd;
+  }
+
+  .badge b {
+    color: #fff;
+    margin-left: 6px;
+  }
+
+  button {
+    background: #3b82f6;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  button:hover {
+    background: #2563eb;
+  }
+</style>
+</head>
+<body>
+
+<h1>?? 弹珠台球 & ? 足球小游戏</h1>
+
+<div class="container">
+
+  <!-- 弹珠台球 -->
+  <div class="game-card">
+    <div class="game-title">
+      <h2>?? 弹珠台球</h2>
+      <button onclick="resetPool()">重置台球</button>
+    </div>
+    <div class="tips">
+      拖动白球瞄准，松开鼠标发射。将彩色球撞入袋中得分，白球落袋会自动放回。
+    </div>
+    <canvas id="poolCanvas" width="700" height="320"></canvas>
+    <div class="scoreboard">
+      <div class="badge">台球得分<b id="poolScore">0</b></div>
+    </div>
+  </div>
+
+  <!-- 足球游戏 -->
+  <div class="game-card">
+    <div class="game-title">
+      <h2>? 足球游戏</h2>
+      <button onclick="resetFootball()">重置足球</button>
+    </div>
+    <div class="tips">
+      鼠标移动控制底部踢球位置，按住拖动瞄准球门，松开发射。前方有 3 名球员配合，守门员会扑救。
+    </div>
+    <canvas id="footballCanvas" width="700" height="420"></canvas>
+    <div class="scoreboard">
+      <div class="badge">足球得分<b id="footballScore">0</b></div>
+      <div class="badge">状态<b id="footballState">等待发球</b></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* =========================================================
+   第一部分：弹珠台球
+   ========================================================= */
+const poolCanvas = document.getElementById('poolCanvas');
+const pCtx = poolCanvas.getContext('2d');
+const PW = poolCanvas.width;
+const PH = poolCanvas.height;
+
+let balls = [];
+let pockets = [
+  { x: 0, y: 0 },
+  { x: PW / 2, y: 0 },
+  { x: PW, y: 0 },
+  { x: 0, y: PH },
+  { x: PW / 2, y: PH },
+  { x: PW, y: PH }
+];
+let cueBall = null;
+let isAiming = false;
+let aimMouse = { x: 0, y: 0 };
+let poolScore = 0;
+const poolScoreEl = document.getElementById('poolScore');
+
+class Ball {
+  constructor(x, y, r, color, isCue = false) {
+    this.x = x;
+    this.y = y;
+    this.r = r;
+    this.color = color;
+    this.vx = 0;
+    this.vy = 0;
+    this.isCue = isCue;
+  }
+
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+
+    this.vx *= 0.985;
+    this.vy *= 0.985;
+
+    if (Math.abs(this.vx) < 0.02) this.vx = 0;
+    if (Math.abs(this.vy) < 0.02) this.vy = 0;
+
+    if (this.x - this.r < 0) {
+      this.x = this.r;
+      this.vx *= -0.8;
+    }
+    if (this.x + this.r > PW) {
+      this.x = PW - this.r;
+      this.vx *= -0.8;
+    }
+    if (this.y - this.r < 0) {
+      this.y = this.r;
+      this.vy *= -0.8;
+    }
+    if (this.y + this.r > PH) {
+      this.y = PH - this.r;
+      this.vy *= -0.8;
+    }
+  }
+
+  draw() {
+    pCtx.beginPath();
+    pCtx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    const gradient = pCtx.createRadialGradient(
+      this.x - this.r / 3,
+      this.y - this.r / 3,
+      this.r / 6,
+      this.x,
+      this.y,
+      this.r
+    );
+    gradient.addColorStop(0, '#ffffff');
+    gradient.addColorStop(1, this.color);
+    pCtx.fillStyle = gradient;
+    pCtx.fill();
+    pCtx.strokeStyle = 'rgba(0,0,0,0.35)';
+    pCtx.lineWidth = 1.5;
+    pCtx.stroke();
+  }
+}
+
+function initPool() {
+  balls = [];
+  poolScore = 0;
+  poolScoreEl.textContent = '0';
+
+  cueBall = new Ball(110, PH / 2, 13, '#ffffff', true);
+  balls.push(cueBall);
+
+  const colors = [
+    '#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6',
+    '#10b981', '#ec4899', '#f97316', '#111827'
+  ];
+
+  let startX = PW - 170;
+  let startY = PH / 2;
+  let index = 0;
+
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col <= row; col++) {
+      const x = startX + row * 26;
+      const y = startY - row * 13 + col * 26;
+      balls.push(new Ball(x, y, 13, colors[index % colors.length]));
+      index++;
+    }
+  }
+}
+
+function ballCollision(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = a.r + b.r;
+
+  if (dist < minDist && dist > 0) {
+    const nx = dx / dist;
+    const ny = dy / dist;
+
+    const dvx = a.vx - b.vx;
+    const dvy = a.vy - b.vy;
+    const dot = dvx * nx + dvy * ny;
+
+    if (dot > 0) return;
+
+    const impulse = (2 * dot) / 2;
+    a.vx -= impulse * nx;
+    a.vy -= impulse * ny;
+    b.vx += impulse * nx;
+    b.vy += impulse * ny;
+
+    const overlap = minDist - dist;
+    a.x -= overlap * nx * 0.5;
+    a.y -= overlap * ny * 0.5;
+    b.x += overlap * nx * 0.5;
+    b.y += overlap * ny * 0.5;
+  }
+}
+
+function checkPockets() {
+  for (let i = balls.length - 1; i >= 0; i--) {
+    const ball = balls[i];
+
+    for (const pocket of pockets) {
+      const distance = Math.hypot(ball.x - pocket.x, ball.y - pocket.y);
+
+      if (distance < 20) {
+        if (ball.isCue) {
+          ball.x = 110;
+          ball.y = PH / 2;
+          ball.vx = 0;
+          ball.vy = 0;
+        } else {
+          balls.splice(i, 1);
+          poolScore += 10;
+          poolScoreEl.textContent = poolScore;
+        }
+        break;
+      }
+    }
+  }
+}
+
+function drawPoolTable() {
+  pCtx.fillStyle = '#1f6b3c';
+  pCtx.fillRect(0, 0, PW, PH);
+
+  pCtx.strokeStyle = '#0e3d22';
+  pCtx.lineWidth = 6;
+  pCtx.strokeRect(3, 3, PW - 6, PH - 6);
+
+  for (const pocket of pockets) {
+    pCtx.beginPath();
+    pCtx.arc(pocket.x, pocket.y, 17, 0, Math.PI * 2);
+    pCtx.fillStyle = '#000';
+    pCtx.fill();
+  }
+}
+
+function poolLoop() {
+  drawPoolTable();
+
+  for (const ball of balls) ball.update();
+
+  for (let i = 0; i < balls.length; i++) {
+    for (let j = i + 1; j < balls.length; j++) {
+      ballCollision(balls[i], balls[j]);
+    }
+  }
+
+  checkPockets();
+
+  for (const ball of balls) ball.draw();
+
+  if (isAiming && cueBall) {
+    const dx = aimMouse.x - cueBall.x;
+    const dy = aimMouse.y - cueBall.y;
+    const power = Math.min(Math.hypot(dx, dy), 160);
+
+    pCtx.beginPath();
+    pCtx.moveTo(cueBall.x, cueBall.y);
+    pCtx.lineTo(cueBall.x + dx * 0.6, cueBall.y + dy * 0.6);
+    pCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+    pCtx.lineWidth = 2;
+    pCtx.stroke();
+
+    pCtx.fillStyle = '#fff';
+    pCtx.fillText(`力度: ${Math.round(power)}`, cueBall.x + 14, cueBall.y - 10);
+  }
+
+  requestAnimationFrame(poolLoop);
+}
+
+poolCanvas.addEventListener('mousedown', (e) => {
+  const rect = poolCanvas.getBoundingClientRect();
+  aimMouse.x = e.clientX - rect.left;
+  aimMouse.y = e.clientY - rect.top;
+  isAiming = true;
+});
+
+poolCanvas.addEventListener('mousemove', (e) => {
+  if (!isAiming) return;
+  const rect = poolCanvas.getBoundingClientRect();
+  aimMouse.x = e.clientX - rect.left;
+  aimMouse.y = e.clientY - rect.top;
+});
+
+poolCanvas.addEventListener('mouseup', () => {
+  if (!isAiming || !cueBall) return;
+  isAiming = false;
+
+  const dx = aimMouse.x - cueBall.x;
+  const dy = aimMouse.y - cueBall.y;
+  const dist = Math.hypot(dx, dy);
+
+  if (dist < 1) return;
+
+  const power = Math.min(dist, 160) / 10;
+  cueBall.vx = (dx / dist) * power;
+  cueBall.vy = (dy / dist) * power;
+});
+
+function resetPool() {
+  initPool();
+}
+
+/* =========================================================
+   第二部分：足球游戏 —— 3名球员 + 1名守门员
+   ========================================================= */
+const footballCanvas = document.getElementById('footballCanvas');
+const fCtx = footballCanvas.getContext('2d');
+const FW = footballCanvas.width;
+const FH = footballCanvas.height;
+
+const footballScoreEl = document.getElementById('footballScore');
+const footballStateEl = document.getElementById('footballState');
+
+let footballScore = 0;
+let footballState = '等待发球';
+
+const ball = {
+  x: FW / 2,
+  y: FH - 90,
+  r: 10,
+  vx: 0,
+  vy: 0,
+  active: false
+};
+
+const goal = {
+  x: FW / 2 - 90,
+  y: 10,
+  w: 180,
+  h: 26
+};
+
+const kicker = {
+  x: FW / 2,
+  y: FH - 40,
+  w: 110,
+  h: 16,
+  color: '#fde047'
+};
+
+// 守门员
+const goalkeeper = {
+  x: FW / 2,
+  y: 50,
+  r: 18,
+  vx: 0,
+  speed: 3.2,
+  color: '#ef4444',
+  targetX: FW / 2
+};
+
+// 3名前场球员
+const forwards = [
+  {
+    name: '前锋1',
+    x: FW / 2 - 160,
+    y: 210,
+    r: 16,
+    vx: 0,
+    vy: 0,
+    speed: 1.6,
+    color: '#3b82f6',
+    role: 'shooter'
+  },
+  {
+    name: '前锋2',
+    x: FW / 2,
+    y: 170,
+    r: 16,
+    vx: 0,
+    vy: 0,
+    speed: 1.4,
+    color: '#60a5fa',
+    role: 'shooter'
+  },
+  {
+    name: '前锋3',
+    x: FW / 2 + 160,
+    y: 210,
+    r: 16,
+    vx: 0,
+    vy: 0,
+    speed: 1.5,
+    color: '#2563eb',
+    role: 'support'
+  }
+];
+
+let isAimingFootball = false;
+let aimStart = { x: 0, y: 0 };
+let aimCurrent = { x: 0, y: 0 };
+
+function updateFootballState(text) {
+  footballState = text;
+  footballStateEl.textContent = text;
+}
+
+function resetFootball() {
+  ball.x = FW / 2;
+  ball.y = FH - 90;
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.active = false;
+
+  goalkeeper.x = FW / 2;
+  goalkeeper.vx = 0;
+
+  forwards[0].x = FW / 2 - 160;
+  forwards[0].y = 210;
+  forwards[0].vx = 0;
+  forwards[0].vy = 0;
+
+  forwards[1].x = FW / 2;
+  forwards[1].y = 170;
+  forwards[1].vx = 0;
+  forwards[1].vy = 0;
+
+  forwards[2].x = FW / 2 + 160;
+  forwards[2].y = 210;
+  forwards[2].vx = 0;
+  forwards[2].vy = 0;
+
+  footballScore = 0;
+  footballScoreEl.textContent = '0';
+  updateFootballState('等待发球');
+}
+
+function drawPitch() {
+  // 草地
+  fCtx.fillStyle = '#166534';
+  fCtx.fillRect(0, 0, FW, FH);
+
+  // 草地条纹
+  for (let i = 0; i < 10; i++) {
+    fCtx.fillStyle = i % 2 === 0 ? '#15803d' : '#166534';
+    fCtx.fillRect(0, i * (FH / 10), FW, FH / 10);
+  }
+
+  // 边线
+  fCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+  fCtx.lineWidth = 3;
+  fCtx.strokeRect(6, 6, FW - 12, FH - 12);
+
+  // 中线
+  fCtx.beginPath();
+  fCtx.moveTo(0, FH / 2);
+  fCtx.lineTo(FW, FH / 2);
+  fCtx.stroke();
+
+  // 禁区
+  fCtx.strokeRect(FW / 2 - 130, 0, 260, 110);
+  fCtx.strokeRect(FW / 2 - 90, 0, 180, 50);
+
+  // 球门
+  fCtx.fillStyle = '#fff';
+  fCtx.fillRect(goal.x, goal.y, goal.w, goal.h);
+  fCtx.strokeStyle = '#111';
+  fCtx.lineWidth = 2;
+  fCtx.strokeRect(goal.x, goal.y, goal.w, goal.h);
+}
+
+function drawPlayer(p) {
+  fCtx.beginPath();
+  fCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+  fCtx.fillStyle = p.color;
+  fCtx.fill();
+  fCtx.strokeStyle = '#fff';
+  fCtx.lineWidth = 2;
+  fCtx.stroke();
+
+  // 球员编号
+  fCtx.fillStyle = '#fff';
+  fCtx.font = 'bold 12px sans-serif';
+  fCtx.textAlign = 'center';
+  fCtx.textBaseline = 'middle';
+  const number = p === goalkeeper ? '1' : (forwards.indexOf(p) + 2);
+  fCtx.fillText(number, p.x, p.y);
+}
+
+function drawBall() {
+  fCtx.beginPath();
+  fCtx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  fCtx.fillStyle = '#fff';
+  fCtx.fill();
+  fCtx.strokeStyle = '#000';
+  fCtx.lineWidth = 2;
+  fCtx.stroke();
+}
+
+function drawKicker() {
+  fCtx.fillStyle = kicker.color;
+  fCtx.fillRect(kicker.x - kicker.w / 2, kicker.y, kicker.w, kicker.h);
+  fCtx.strokeStyle = '#000';
+  fCtx.lineWidth = 2;
+  fCtx.strokeRect(kicker.x - kicker.w / 2, kicker.y, kicker.w, kicker.h);
+}
+
+function drawAimLine() {
+  if (!isAimingFootball) return;
+
+  const dx = aimCurrent.x - kicker.x;
+  const dy = aimCurrent.y - kicker.y;
+  const dist = Math.min(Math.hypot(dx, dy), 140);
+
+  fCtx.beginPath();
+  fCtx.moveTo(kicker.x, kicker.y);
+  fCtx.lineTo(kicker.x + dx * 0.7, kicker.y + dy * 0.7);
+  fCtx.strokeStyle = 'rgba(255,255,255,0.85)';
+  fCtx.lineWidth = 3;
+  fCtx.stroke();
+
+  fCtx.fillStyle = '#fff';
+  fCtx.fillText(`力度 ${Math.round(dist)}`, kicker.x + 60, kicker.y - 8);
+}
+
+function updateGoalkeeper() {
+  // 守门员向球的水平方向移动
+  goalkeeper.targetX = Math.max(goal.x + 30, Math.min(goal.x + goal.w - 30, ball.x));
+
+  if (goalkeeper.x < goalkeeper.targetX - 1) {
+    goalkeeper.vx = goalkeeper.speed;
+  } else if (goalkeeper.x > goalkeeper.targetX + 1) {
+    goalkeeper.vx = -goalkeeper.speed;
+  } else {
+    goalkeeper.vx = 0;
+  }
+
+  goalkeeper.x += goalkeeper.vx;
+}
+
+function updateForwards() {
+  for (const player of forwards) {
+    // 前锋根据角色选择位置
+    let targetX, targetY;
+
+    if (player.role === 'shooter') {
+      targetX = FW / 2 + (player === forwards[0] ? -140 : player === forwards[1] ? 0 : 140);
+      targetY = 190;
+    } else {
+      targetX = FW / 2 + (Math.sin(Date.now() / 900 + player.x) * 80);
+      targetY = 240;
+    }
+
+    const dx = targetX - player.x;
+    const dy = targetY - player.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist > 1) {
+      player.vx = (dx / dist) * player.speed;
+      player.vy = (dy / dist) * player.speed;
+    } else {
+      player.vx = 0;
+      player.vy = 0;
+    }
+
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // 限制在场地内
+    player.x = Math.max(20, Math.min(FW - 20, player.x));
+    player.y = Math.max(120, Math.min(FH - 100, player.y));
+  }
+}
+
+function checkPlayerCollision() {
+  // 球员触球
+  for (const player of forwards) {
+    const dist = Math.hypot(ball.x - player.x, ball.y - player.y);
+    if (dist < ball.r + player.r && ball.active) {
+      const angle = Math.atan2(110 - ball.y, FW / 2 - ball.x) + (Math.random() - 0.5) * 0.8;
+      const speed = 4 + Math.random() * 2;
+      ball.vx = Math.cos(angle) * speed;
+      ball.vy = Math.sin(angle) * speed;
+
+      // 避免卡球
+      ball.y = player.y - player.r - ball.r - 1;
+      updateFootballState(`${player.name} 触球`);
+    }
+  }
+
+  // 守门员触球
+  const gkDist = Math.hypot(ball.x - goalkeeper.x, ball.y - goalkeeper.y);
+  if (gkDist < ball.r + goalkeeper.r && ball.active) {
+    ball.vy = Math.abs(ball.vy) * 0.8;
+    ball.vx += (Math.random() - 0.5) * 2;
+    ball.y = goalkeeper.y - goalkeeper.r - ball.r - 1;
+    updateFootballState('守门员扑救');
+  }
+}
+
+function updateBall() {
+  if (!ball.active) return;
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // 重力
+  ball.vy += 0.12;
+
+  // 边界
+  if (ball.x - ball.r < 0) {
+    ball.x = ball.r;
+    ball.vx *= -0.75;
+  }
+  if (ball.x + ball.r > FW) {
+    ball.x = FW - ball.r;
+    ball.vx *= -0.75;
+  }
+
+  // 球门判定
+  if (ball.y < goal.y + goal.h && ball.y > goal.y - 10 &&
+      ball.x > goal.x && ball.x < goal.x + goal.w) {
+    footballScore++;
+    footballScoreEl.textContent = footballScore;
+    updateFootballState('进球得分！');
+    resetFootballPositions();
+    return;
+  }
+
+  // 顶部未进球
+  if (ball.y < 0) {
+    ball.y = 0;
+    ball.vy *= -0.7;
+  }
+
+  // 地面
+  if (ball.y > FH - 20) {
+    ball.y = FH - 20;
+    ball.vy *= -0.6;
+    ball.vx *= 0.7;
+
+    if (Math.abs(ball.vy) < 1) {
+      ball.active = false;
+      updateFootballState('球已停止，再次瞄准');
+    }
+  }
+}
+
+function resetFootballPositions() {
+  ball.x = kicker.x;
+  ball.y = kicker.y - 20;
+  ball.vx = 0;
+  ball.vy = 0;
+  ball.active = false;
+
+  goalkeeper.x = FW / 2;
+
+  forwards[0].x = FW / 2 - 160;
+  forwards[0].y = 210;
+  forwards[1].x = FW / 2;
+  forwards[1].y = 170;
+  forwards[2].x = FW / 2 + 160;
+  forwards[2].y = 210;
+}
+
+function footballLoop() {
+  drawPitch();
+  drawKicker();
+  drawAimLine();
+
+  updateGoalkeeper();
+  updateForwards();
+  updateBall();
+  checkPlayerCollision();
+
+  drawPlayer(goalkeeper);
+  for (const player of forwards) drawPlayer(player);
+  drawBall();
+
+  requestAnimationFrame(footballLoop);
+}
+
+footballCanvas.addEventListener('mousemove', (e) => {
+  const rect = footballCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  kicker.x = Math.max(kicker.w / 2, Math.min(FW - kicker.w / 2, mx));
+
+  if (isAimingFootball) {
+    aimCurrent.x = mx;
+    aimCurrent.y = my;
+  }
+});
+
+footballCanvas.addEventListener('mousedown', (e) => {
+  if (ball.active) return;
+
+  const rect = footballCanvas.getBoundingClientRect();
+  aimStart.x = e.clientX - rect.left;
+  aimStart.y = e.clientY - rect.top;
+  aimCurrent.x = aimStart.x;
+  aimCurrent.y = aimStart.y;
+  isAimingFootball = true;
+  updateFootballState('正在瞄准');
+});
+
+footballCanvas.addEventListener('mouseup', () => {
+  if (!isAimingFootball) return;
+  isAimingFootball = false;
+
+  const dx = aimCurrent.x - kicker.x;
+  const dy = aimCurrent.y - kicker.y;
+  const dist = Math.min(Math.hypot(dx, dy), 140);
+
+  if (dist < 3) return;
+
+  ball.x = kicker.x;
+  ball.y = kicker.y - 18;
+  ball.vx = (dx / dist) * (dist / 18);
+  ball.vy = -(dist / 16);
+  ball.active = true;
+
+  updateFootballState('射门！');
+});
+
+/* =========================================================
+   启动游戏
+   ========================================================= */
+initPool();
+poolLoop();
+footballLoop();
+</script>
+
+</body>
+</html>
